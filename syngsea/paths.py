@@ -3,7 +3,7 @@ import os
 INIT_DIR = '/Users/lwang/git/synthetic_gsea'
 
 class SynGSEAFilePath(object):
-    syngsea_source_folder = 'src'
+    syngsea_source_folder = 'syngsea'
     syngsea_output_folder = 'output'
 
     def __init__(self, base_dir=INIT_DIR):

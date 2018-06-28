@@ -1,12 +1,12 @@
 import os
-import sys
 import random
 from datetime import datetime
+import shutil
 import pandas as pd
 from collections import defaultdict
 
 from numpy.random import normal, poisson
-from src.paths import SynGSEAFilePath
+from syngsea.paths import SynGSEAFilePath
 
 # generator class wrapper for numpy.random.normal
 class NormalNoiseGenerator:
@@ -38,14 +38,14 @@ class SyntheticGSEA:
     def __init__(
             self,
             perc_redundant,
-            num_patients=200,
-            total_genes=20000,
-            expressed_genes=1000,
+            num_patients=100,
+            total_genes=2000,
+            expressed_genes=500,
             perc_diff_expressed=0.1,
             perc_positive=0.5,
-            num_gene_sets=1000,
+            num_gene_sets=100,
             min_gs_size=10,
-            max_gs_size=50
+            max_gs_size=100
     ):
         paths = SynGSEAFilePath()
         self.path = paths.base_dir
@@ -80,14 +80,14 @@ class SyntheticGSEA:
         self.gene_to_identifier_dict = defaultdict(list)
         self.expression_profiles_dict = dict()
 
-        self.sys_noise_generator = NormalNoiseGenerator(0., 0.1)
-        self.exp_noise_generator = PoissonNoiseGenerator(20.)
-        self.fold_diff_generator = PoissonNoiseGenerator(1.)
+        self.sys_noise_generator = NormalNoiseGenerator(0., 25.)
+        self.exp_noise_generator = NormalNoiseGenerator(0., 50.)
+        self.fold_diff_generator = PoissonNoiseGenerator(5.)
 
         self.name_pos_class = 'POS'
         self.name_neg_class = 'NEG'
-        self.num_pos_class = int(self.percent_positives * self.num_patients)
-        self.num_neg_class = self.num_patients - num_positives
+        self.num_pos_class = int(self.perc_positive * self.num_patients)
+        self.num_neg_class = self.num_patients - self.num_pos_class
 
     def _generate_cls_file(self, output_file, classes, samples):
         """
@@ -101,16 +101,16 @@ class SyntheticGSEA:
         assert (len(samples) == len(classes))
         assert (len(set(classes)) == len(classes))
 
-        print('Generating GSEA cls file...')
         total_samples = sum(samples)
         total_classes = len(classes)
 
         with open(output_file, 'w') as f:
             f.write('{} {} 1\n'.format(total_samples, total_classes))
-            f.write('# {}\n'.format(' '.join(classes)))
+            f.write('# {}\n'.format('\t'.join(classes)))
             for s_num, cl_name in zip(samples, classes):
                 for i in range(s_num):
                     f.write('{} '.format(cl_name))
+            f.write('\n')
         return output_file
 
     def _generate_gct_file(self, output_file, expression_matrix):
@@ -122,16 +122,20 @@ class SyntheticGSEA:
         """
         assert not os.path.exists(output_file)
 
-        total_genes = expression_matrix.count()
-        total_samples = expression_matrix.columns() - 2
+        total_genes = len(expression_matrix)
+        total_samples = len(expression_matrix.columns) - 2
 
         with open(output_file, 'w') as f:
             f.write('#1.2\n')
             f.write('{} {}\n'.format(total_genes, total_samples))
-            f.write(' '.join(expression_matrix.headers()))
+            f.write('\t'.join(list(expression_matrix.keys())))
             f.write('\n')
-            for row in expression_matrix:
-                f.write(' '.join(row))
+            for index, row in expression_matrix.iterrows():
+                values = row.tolist()
+                f.write('\t'.join(values[0:2]))
+                f.write('\t')
+                values = ["{0:.2f}".format(v) for v in values[2:]]
+                f.write('\t'.join(values))
                 f.write('\n')
 
         return output_file
@@ -192,16 +196,24 @@ class SyntheticGSEA:
         # initialize
         detected_subset = random.sample(self.synthetic_genes, self.expressed_genes)
 
+        # convert to gene identifiers
+        detected_gene_ids = [random.sample(
+            self.gene_to_identifier_dict[gene], 1
+        )[0] for gene in detected_subset]
+
         # initialize expression dict
         neg_exp = dict()
-        for g_id in detected_subset:
+        for g_id in detected_gene_ids:
             neg_exp[g_id] = next(self.exp_noise_generator)
 
         # generate differential expression profile
-        pos_exp = copy(neg_exp)
-        diff_exp_subset = random.sample(detected_subset, int(self.perc_diff_expressed * len(detected_subset)))
+        pos_exp = dict(neg_exp)
+        diff_exp_subset = random.sample(detected_gene_ids, int(self.perc_diff_expressed * len(detected_subset)))
         for g_id in diff_exp_subset:
             pos_exp[g_id] = next(self.fold_diff_generator) * neg_exp[g_id]
+
+        print('Differentially expressed: ')
+        print(diff_exp_subset)
 
         return pos_exp, neg_exp
 
@@ -214,9 +226,9 @@ class SyntheticGSEA:
         """
         expression_dict = dict()
 
-        gene_names = self.norm_exp.keys()
+        gene_names = neg_exp.keys()
 
-        expression_dict['NAME'] = gene_names
+        expression_dict['NAME'] = list(gene_names)
         expression_dict['DESCRIPTION'] = ['na'] * len(gene_names)
 
         name_tag = [self.name_pos_class] * self.num_pos_class \
@@ -234,15 +246,33 @@ class SyntheticGSEA:
                 values.append(use_exp[g_id] + next(self.sys_noise_generator))
             expression_dict[name] = values
 
-        expression = DataFrame(data=expression_dict)
+        expression = pd.DataFrame(data=expression_dict)
 
         return expression
 
-    def _write_files(self, data, gene_sets):
+    def _generate_gene_sets(self):
+        """
+        Generate synthetic gene sets from synthetic genes
+        :return:
+        """
+        g_sets = []
+
+        for i in range(self.num_gene_sets):
+            gs_name = 'GSET_{}'.format(i)
+            gs_size = random.randint(self.min_gs_size, self.max_gs_size)
+            genes_in_set = random.sample(self.synthetic_genes, gs_size)
+            gene_ids = [random.sample(
+                self.gene_to_identifier_dict[gene], 1
+            )[0] for gene in genes_in_set]
+            g_sets.append((gs_name, 'SYNGSEA', tuple(gene_ids)))
+
+        return g_sets
+
+    def _write_files(self, data, gsets):
         """
         Write cls, gct, and gmt files to output folder
         :param data: gene expression data
-        :param gene_sets: gene set data
+        :param gsets: gene set data
         :return:
         """
         output_experiment_dir = os.path.join(
@@ -251,25 +281,39 @@ class SyntheticGSEA:
                            datetime.now().strftime('%Y-%m-%d'))
         )
 
-        cls_file = os.path.join(output_experiment_dir, 'gsea_exp.cls')
+        try:
+            # make output directory
+            if not(os.path.exists(output_experiment_dir)):
+                os.makedirs(output_experiment_dir)
 
-        self._generate_cls_file(
-            cls_file,
-            (self.name_pos_class, self.name_neg_class),
-            (self.num_pos_class, self.num_neg_class)
-        )
+            os.makedirs(os.path.join(output_experiment_dir, 'gsea_output'))
 
-        gct_file = os.path.join(output_experiment_dir, 'gsea_exp.gct')
+            # write class information to cls file
+            print('Generating GSEA cls file...')
+            cls_file = os.path.join(output_experiment_dir, 'gsea_exp.cls')
+            self._generate_cls_file(
+                cls_file,
+                (self.name_pos_class, self.name_neg_class),
+                (self.num_pos_class, self.num_neg_class)
+            )
 
-        self._generate_gct_file(gct_file, data)
+            # write gene expression data to gct file
+            print('Generating GSEA gct file...')
+            gct_file = os.path.join(output_experiment_dir, 'gsea_exp.gct')
+            self._generate_gct_file(gct_file, data)
 
-        gmt_file = os.path.join(output_experiment_dir, 'gsea_exp.gmt')
+            # write gene sets to gmt file
+            print('Generating GSEA gmt file...')
+            gmt_file = os.path.join(output_experiment_dir, 'gsea_exp.gmt')
+            self._generate_gmt_file(gmt_file, gsets)
 
-        self._generate_gmt_file(gmt_file, gene_sets)
+            print('done.')
 
-        # gs_name, gs_origin, symbols in gene_sets
+        except BaseException:
+            print('Problem generating data, deleting incomplete data...')
+            shutil.rmtree(output_experiment_dir)
 
-
+        return
 
     def generate_all_files(self):
         """
@@ -287,8 +331,11 @@ class SyntheticGSEA:
             positive_expression, negative_expression
         )
 
+        # generate synthetic gene sets
+        gene_sets = self._generate_gene_sets()
+
         # write all files to output dir
-        self._write_files(expression_data)
+        self._write_files(expression_data, gene_sets)
 
         return
 
@@ -298,6 +345,3 @@ class SyntheticGSEA:
         :return:
         """
         return
-
-if __name__ == '__main__':
-    gsea = SyntheticGSEA(0.2)
