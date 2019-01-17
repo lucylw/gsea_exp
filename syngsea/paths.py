@@ -2,9 +2,11 @@ import os
 
 INIT_DIR = '/Users/lwang/git/synthetic_gsea'
 
-class SynGSEAFilePath(object):
-    syngsea_source_folder = 'syngsea'
-    syngsea_output_folder = 'output'
+
+class GSEAFilePath(object):
+    source_folder = 'syngsea'
+    output_folder = 'output'
+    data_folder = 'data'
     gsea_folder = 'GSEA'
 
     def __init__(self, base_dir=INIT_DIR):
@@ -13,9 +15,21 @@ class SynGSEAFilePath(object):
         self.base_dir = base_dir
 
     @property
+    def data_dir(self):
+        return os.path.join(
+            self.base_dir, self.data_folder
+        )
+
+    @property
+    def processed_data_dir(self):
+        return os.path.join(
+            self.data_dir, 'processed_data'
+        )
+
+    @property
     def output_dir(self):
         return os.path.join(
-            self.base_dir, self.syngsea_output_folder
+            self.base_dir, self.output_folder
         )
 
     @property
