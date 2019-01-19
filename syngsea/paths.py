@@ -1,6 +1,6 @@
 import os
 
-INIT_DIR = '/Users/lwang/git/synthetic_gsea'
+INIT_DIR = '/Users/lwang/git/gsea_exp'
 
 
 class GSEAFilePath(object):
