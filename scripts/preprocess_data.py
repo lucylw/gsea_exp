@@ -4,6 +4,8 @@ import pandas as pd
 import requests
 import pickle
 
+from bioservices import BioDBNet
+
 import syngsea.gsea_utils as gsea_utils
 from syngsea.paths import GSEAFilePath
 
@@ -24,6 +26,68 @@ study_paths = {
 
 
 def map_ensembl_ids(ensembl_ids, lookup_dict, tmp_file=None):
+    """
+    Map Ensembl identifiers to Gene symbol using BioDBNet
+    :param ensembl_ids:
+    :param lookup_dict:
+    :param tmp_file:
+    :return:
+    """
+    input_db = 'Ensembl Gene ID'
+    output_db = ['Gene Symbol']
+    species = 9606
+    service = BioDBNet()
+
+    gene_symbols = []
+
+    buffer = []
+    missing = 0
+    num_run = 200
+
+    for count, ens_id in enumerate(tqdm.tqdm(ensembl_ids)):
+        if ens_id in lookup_dict:
+            gene_symbols.append(lookup_dict[ens_id])
+        else:
+            buffer.append(ens_id)
+            if len(buffer) == num_run:
+                results = service.db2db(input_db, output_db, buffer, species)
+
+                for e_id, g_symb in zip(results.index, results['Gene Symbol']):
+                    if g_symb != '-':
+                        gene_symbols.append(g_symb)
+                        lookup_dict[e_id] = g_symb
+                    else:
+                        gene_symbols.append(e_id)
+                        lookup_dict[e_id] = e_id
+                        missing += 1
+
+                buffer = []
+
+                if tmp_file:
+                    pickle.dump(lookup_dict, open(tmp_file, 'wb'))
+
+    # process remainder
+    if buffer:
+        results = service.db2db(input_db, output_db, buffer, species)
+
+        for e_id, g_symb in zip(results.index, results['Gene Symbol']):
+            if g_symb != '-':
+                gene_symbols.append(g_symb)
+                lookup_dict[e_id] = g_symb
+            else:
+                gene_symbols.append(e_id)
+                lookup_dict[e_id] = e_id
+                missing += 1
+
+    print('Total missed: {}'.format(missing))
+
+    if tmp_file:
+        pickle.dump(lookup_dict, open(tmp_file, 'wb'))
+
+    return gene_symbols, lookup_dict
+
+
+def map_ensembl_ids_to_hgnc_name(ensembl_ids, lookup_dict, tmp_file=None):
     """
     Map Ensembl IDs to HGNC Gene names
     :param ensembl_ids:
@@ -49,7 +113,7 @@ def map_ensembl_ids(ensembl_ids, lookup_dict, tmp_file=None):
                     "all_levels": "1"
                 })
 
-                add_id = None
+                add_id = ens_id
 
                 if r.ok:
                     decoded = r.json()
@@ -60,9 +124,10 @@ def map_ensembl_ids(ensembl_ids, lookup_dict, tmp_file=None):
                 hgnc_names.append(add_id)
                 lookup_dict[ens_id] = add_id
 
-            if count % 200 == 0:
+            if count % 1000 == 0:
                 if tmp_file:
                     pickle.dump(lookup_dict, open(tmp_file, 'wb'))
+
     except Exception:
         if tmp_file:
             pickle.dump(lookup_dict, open(tmp_file, 'wb'))
@@ -71,6 +136,9 @@ def map_ensembl_ids(ensembl_ids, lookup_dict, tmp_file=None):
         if tmp_file:
             pickle.dump(lookup_dict, open(tmp_file, 'wb'))
         raise KeyboardInterrupt
+
+    if tmp_file:
+        pickle.dump(lookup_dict, open(tmp_file, 'wb'))
 
     return hgnc_names, lookup_dict
 
@@ -243,13 +311,6 @@ def load_amp():
         gene_exp = gene_exp.T
 
         gene_names, gene_dict = map_ensembl_ids(gene_exp.index, gene_dict, tmp_file=temp_file)
-        pickle.dump(gene_dict, open(temp_file, 'wb'))
-
-        num_skipped = len([1 for n in gene_names if n])
-        print('{} HGNC identifiers missed'.format(num_skipped))
-        for i, name in enumerate(gene_names):
-            if not name:
-                gene_names[i] = df.index[i]
 
         gene_exp.index.name = 'NAME'
         gene_exp.insert(loc=0, column='NAME', value=gene_names)

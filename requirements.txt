@@ -3,3 +3,7 @@ numpy==1.15.3
 matplotlib==3.0.0
 tqdm==4.28.1
 rpy2==2.9.4
+gseapy==0.9.9
+bioservices==1.6.0
+pybiomart==0.2.0
+tqdm==4.28.1
