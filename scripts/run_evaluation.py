@@ -42,7 +42,8 @@ class GSEAExperiment:
             data=gct_file,
             gene_sets=gmt_file,
             cls=cls_file,
-            outdir=save_dir
+            outdir=save_dir,
+            verbose=True
         )
 
     def iterate_data(self):
