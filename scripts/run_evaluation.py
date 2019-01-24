@@ -43,6 +43,7 @@ class GSEAExperiment:
             gene_sets=gmt_file,
             cls=cls_file,
             outdir=save_dir,
+            processes=4,
             verbose=True
         )
 

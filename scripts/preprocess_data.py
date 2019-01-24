@@ -5,6 +5,7 @@ import requests
 import pickle
 
 from bioservices import BioDBNet
+from pybiomart import Server
 
 import syngsea.gsea_utils as gsea_utils
 from syngsea.paths import GSEAFilePath
@@ -23,6 +24,27 @@ study_paths = {
     k: os.path.join(paths.data_dir, v)
     for k, v in study_dict.items()
 }
+
+
+def get_ensembl_dict():
+    """
+    Create BioMart server and get Ensembl id mapping dict
+    :return:
+    """
+    # map ensemble identifiers to gene names
+    server = Server(host='http://www.ensembl.org')
+
+    ensembl_dataset = (
+        server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl']
+    )
+
+    results = ensembl_dataset.query(
+        attributes=['ensembl_gene_id', 'external_gene_name']
+    )
+
+    ens_dict = dict(zip(results['Gene stable ID'], results['Gene name']))
+
+    return ens_dict
 
 
 def map_ensembl_ids(ensembl_ids, lookup_dict, tmp_file=None):
@@ -243,9 +265,10 @@ def load_act():
         gsea_utils.generate_gct_file(gct_file, gene_exp)
 
 
-def load_amp():
+def load_amp(ensembl_lookup_dict):
     """
     Parse AMP data into GSEA format
+    :param ensembl_lookup_dict:
     :return:
     """
     brodmann_files = {
@@ -310,7 +333,16 @@ def load_amp():
         gene_exp = df.drop(columns=['sampleIdentifier', 'has_AD'])
         gene_exp = gene_exp.T
 
-        gene_names, gene_dict = map_ensembl_ids(gene_exp.index, gene_dict, tmp_file=temp_file)
+        # map gene expression index to
+        ensembl_ids = gene_exp.index
+
+        # map ensemble genes to gene names
+        all_genes = [ens_id for ens_id in ensembl_ids if ens_id.split('.')[0] in ensembl_lookup_dict]
+        print('Keep {} genes out of {}'.format(len(all_genes), len(ensembl_ids)))
+
+        keep_rows = [ind in all_genes for ind in gene_exp.index]
+        gene_exp = gene_exp[keep_rows]
+        gene_names = [ensembl_lookup_dict[ens_id] for ens_id in gene_exp.index]
 
         gene_exp.index.name = 'NAME'
         gene_exp.insert(loc=0, column='NAME', value=gene_names)
@@ -325,10 +357,52 @@ def load_amp():
         gsea_utils.generate_gct_file(gct_file, gene_exp)
 
 
+def load_tcga(header):
+    """
+    Parse TCGA data to GSEA format
+    :param header:
+    :return:
+    """
+    print('TCGA_{}'.format(header))
+
+    cls_file = os.path.join(paths.processed_data_dir, '{}.cls'.format(header))
+    gct_file = os.path.join(paths.processed_data_dir, '{}.gct'.format(header))
+
+    pt_info_file = os.path.join(study_paths[header], 'tcga_{}_pt_info.tsv'.format(header.lower()))
+    gene_exp_file = os.path.join(study_paths[header], 'tcga_{}_gene_exp.tsv'.format(header.lower()))
+
+    pt_info = pd.read_csv(pt_info_file, sep='\t')
+    pt_info = pt_info[['tissue_type', 'file_name']]
+
+    gene_exp = pd.read_csv(gene_exp_file, sep='\t')
+    gene_exp = gene_exp.rename(index=str, columns={'Unnamed: 0': 'file_name'})
+
+    df = pt_info.merge(gene_exp, on='file_name')
+    df.sort_values(['tissue_type'], ascending=[False])
+
+    tumor = df.loc[pt_info['tissue_type'] == 'tumor']
+    control = df.loc[pt_info['tissue_type'] == 'control']
+
+    gene_exp = df.drop(columns=['tissue_type', 'file_name'])
+    gene_exp = gene_exp.T
+
+    gene_exp.index.name = 'NAME'
+    gene_exp.insert(loc=0, column='NAME', value=gene_exp.index)
+    gene_exp.insert(loc=1, column='DESCRIPTION', value=['na'] * len(gene_exp))
+    gene_exp.reset_index(level=0, inplace=True, drop=True)
+
+    column_headers = ['TUMOR_{}'.format(i) for i in range(1, len(tumor) + 1)] \
+                     + ['CONTROL_{}'.format(i) for i in range(1, len(control) + 1)]
+    gene_exp.columns = ['NAME', 'DESCRIPTION'] + column_headers
+
+    gsea_utils.generate_cls_file(cls_file, ['TUMOR', 'CONTROL'], [len(tumor), len(control)])
+    gsea_utils.generate_gct_file(gct_file, gene_exp)
+
+
+
+ensembl_dict = get_ensembl_dict()
+
 load_act()
-load_amp()
-
-
-
-
-
+load_amp(ensembl_dict)
+load_tcga('LUAD')
+load_tcga('HNSCC')
