@@ -301,12 +301,6 @@ def load_amp(ensembl_lookup_dict):
     pt = rnaseq_ids.merge(clinical_data, on='individualIdentifier')
     pt = pt.sort_values(['has_AD', 'BrodmannArea'], ascending=[False, True])
 
-    temp_file = os.path.join(paths.base_dir, 'temp', 'gene_lookup_dict.pickle')
-    if os.path.exists(temp_file):
-        gene_dict = pickle.load(open(temp_file, 'rb'))
-    else:
-        gene_dict = dict()
-
     for bm_area, bm_file in brodmann_files.items():
         print(bm_area)
         cls_file = os.path.join(paths.processed_data_dir, '{}_{}.cls'.format(
@@ -338,9 +332,19 @@ def load_amp(ensembl_lookup_dict):
 
         # map ensemble genes to gene names
         all_genes = [ens_id for ens_id in ensembl_ids if ens_id.split('.')[0] in ensembl_lookup_dict]
-        print('Keep {} genes out of {}'.format(len(all_genes), len(ensembl_ids)))
 
-        keep_rows = [ind in all_genes for ind in gene_exp.index]
+        # keep only genes with unique names
+        keep_ens_ids = []
+        keep_gene_names = set()
+        for ens_ind in all_genes:
+            gene_name = ensembl_lookup_dict[ens_ind]
+            if gene_name not in keep_gene_names:
+                keep_ens_ids.append(ens_ind)
+                keep_gene_names.add(gene_name)
+
+        print('Keep {} genes out of {}'.format(len(keep_ens_ids), len(ensembl_ids)))
+
+        keep_rows = [ind in keep_ens_ids for ind in gene_exp.index]
         gene_exp = gene_exp[keep_rows]
         gene_names = [ensembl_lookup_dict[ens_id] for ens_id in gene_exp.index]
 

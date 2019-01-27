@@ -79,8 +79,20 @@ class GSEAExperiment:
 
 if __name__ == '__main__':
     paths = GSEAFilePath()
+
+    # baseline experiments
     gset_file = os.path.join(paths.data_dir, 'gene_sets', 'c2.cp.v6.2.symbols.gmt')
     output_dir = os.path.join(paths.output_dir, 'gsea_baseline')
+    exp = GSEAExperiment(
+        data_dir=paths.processed_data_dir,
+        gene_set_file=gset_file,
+        output_dir=output_dir
+    )
+    exp.iterate_data()
+
+    # comparative experiments
+    gset_file = os.path.join(paths.data_dir, 'gene_sets', 'pw_normalized.gmt')
+    output_dir = os.path.join(paths.output_dir, 'gsea_normalized')
     exp = GSEAExperiment(
         data_dir=paths.processed_data_dir,
         gene_set_file=gset_file,
