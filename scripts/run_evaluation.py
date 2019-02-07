@@ -61,20 +61,22 @@ class GSEAExperiment:
             fname_w_ext = os.path.basename(cls_file)
             file_name, file_ext = os.path.splitext(fname_w_ext)
 
-            print('Running GSEA on {}...'.format(file_name))
+            if not file_name.startswith('AMP'):
 
-            gct_file = os.path.join(self.data_dir, '{}.{}'.format(file_name, 'gct'))
-            out_dir = os.path.join(self.output_dir, file_name)
+                print('Running GSEA on {}...'.format(file_name))
 
-            if not os.path.exists(out_dir):
-                os.mkdir(out_dir)
+                gct_file = os.path.join(self.data_dir, '{}.{}'.format(file_name, 'gct'))
+                out_dir = os.path.join(self.output_dir, file_name)
 
-            self.run_gsea(
-                cls_file=cls_file,
-                gct_file=gct_file,
-                gmt_file=self.gmt_use,
-                save_dir=out_dir
-            )
+                if not os.path.exists(out_dir):
+                    os.mkdir(out_dir)
+
+                self.run_gsea(
+                    cls_file=cls_file,
+                    gct_file=gct_file,
+                    gmt_file=self.gmt_use,
+                    save_dir=out_dir
+                )
 
 
 if __name__ == '__main__':
@@ -91,7 +93,7 @@ if __name__ == '__main__':
     exp.iterate_data()
 
     # comparative experiments
-    gset_file = os.path.join(paths.data_dir, 'gene_sets', 'pw_normalized.gmt')
+    gset_file = os.path.join(paths.data_dir, 'gene_sets', 'pw_gene_sets_v0.2.gmt')
     output_dir = os.path.join(paths.output_dir, 'gsea_normalized')
     exp = GSEAExperiment(
         data_dir=paths.processed_data_dir,

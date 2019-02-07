@@ -71,10 +71,10 @@ class GSEAProcessor:
         :return:
         """
         parents = ont[start_id]['subClassOf']
-        for par_id in parents:
+        for par_id in parents[:1]:
             if par_id not in ns and par_id in ont:
                 par_name = ont[par_id]['name'].replace(' ', '_').upper()
-                ns[par_id] = (par_name, -1.0)
+                ns[par_id] = (par_name, -1.0, "parent")
             if (par_id, start_id) not in ls:
                 ls.add((par_id, start_id))
             ns, ls = self.add_all_parents(ns, ls, par_id, ont)
@@ -103,13 +103,53 @@ class GSEAProcessor:
 
                 node_list.append({
                     "uid": node,
-                    "name": ns[node][0],
+                    "name": ns[node][0].replace('_', ' '),
                     "score": ns[node][1],
                     "parent": parent_id,
-                    "children": self.construct_child_tree(children, ns, ls)
+                    "children": self.construct_child_tree(children, ns, ls),
+                    "type": ns[node][2]
                 })
 
         return node_list
+
+    def _get_all_children_scores(self, node_id, ns, ls):
+        """
+        Get all children scores and add
+        :param node_id:
+        :param ns:
+        :param ls:
+        :return:
+        """
+        query_ids = [node_id]
+        sum_value = 0.
+
+        while query_ids:
+            new_query_ids = []
+            for qid in query_ids:
+                children = [l[1] for l in ls if l[0] == qid]
+                for c in children:
+                    if ns[c][1] != -1.0:
+                        sum_value += ns[c][1]
+                    else:
+                        new_query_ids.append(c)
+            query_ids = new_query_ids
+
+        return sum_value
+
+    def _compute_sum_scores(self, ns, ls):
+        """
+        Sum scores of all children for each node
+        :param ns:
+        :return:
+        """
+        new_nodes = dict()
+        for ent_id, ent_vals in ns.items():
+            if ent_vals[1] != -1.0:
+                new_nodes[ent_id] = ent_vals
+            else:
+                par_name, _, par_str = ent_vals
+                new_nodes[ent_id] = (par_name, self._get_all_children_scores(ent_id, ns, ls), par_str)
+        return new_nodes
 
     def generate_json_file(self, pw_paths, pw, outfile):
         """
@@ -125,19 +165,24 @@ class GSEAProcessor:
         for es, path_name in zip(pw_paths.ES_normalized, pw_paths.GS_normalized):
             path_parts = path_name.split('_')
             pw_id = '_'.join(path_parts[:2])
-            if pw_id in pw:
+            if pw_id in pw and pw_id not in self.pw_root:
                 pw_name = pw[pw_id]['name'].replace(' ', '_').upper()
-                nodes[pw_id] = (pw_name, es)
+                nodes[pw_id] = (pw_name, es, "output")
                 nodes, links = self.add_all_parents(nodes, links, pw_id, pw)
+
+        nodes = self._compute_sum_scores(nodes, links)
 
         root_dict = [
             {
                 "name": "PATHWAY",
                 "score": -1.0,
                 "parent": "null",
-                "children": self.construct_child_tree(self.pw_root, nodes, links)
+                "children": self.construct_child_tree(self.pw_root, nodes, links),
+                "type": "parent"
             }
         ]
+
+
 
         # dump json to file
         json.dump(
@@ -172,14 +217,15 @@ class GSEAProcessor:
         :param f_path:
         :return:
         """
-        keep_cols = ['GS', 'ES', 'NES', 'p-val']
+        keep_cols = ['GS', 'ES', 'NES', 'NOM p-val']
         new_col_names = ['GS', 'ES', 'NES', 'pval']
 
         df = pd.read_csv(f_path, sep='\t', header=0)
+
         df = df[keep_cols]
         df.columns = new_col_names
-        df = df.sort_values(by=['ES'], ascending=False)
-        df = df[:constants.KEEP_TOP_N_GSEA_RESULTS].filter(keep_cols)
+        df = df.sort_values(by=['NES'], ascending=False)
+        df = df[:constants.KEEP_TOP_N_GSEA_RESULTS].filter(new_col_names)
         df = df.reset_index(drop=True)
 
         return df
@@ -285,8 +331,9 @@ class GSEAProcessor:
                 normalized_data = self.process_r_results(normalized_report)
 
                 baseline_ledge_file = os.path.join(self.gsea_baseline_path, t_name, 'GSEAanalysis.leading.genes.AD.gct')
-                normalized_ledge_file = os.path.join(self.gsea_baseline_path, t_name, 'GSEAanalysis.leading.genes.AD.gct')
-                self.compute_r_ledge_rbo(baseline_ledge_file, normalized_ledge_file)
+                normalized_ledge_file = os.path.join(self.gsea_normalized_path, t_name, 'GSEAanalysis.leading.genes.AD.gct')
+                if os.path.exists(baseline_ledge_file) and os.path.exists(normalized_ledge_file):
+                    self.compute_r_ledge_rbo(baseline_ledge_file, normalized_ledge_file)
 
             # Remainder were processed with gseapy
             else:
