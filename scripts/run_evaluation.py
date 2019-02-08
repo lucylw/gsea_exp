@@ -1,4 +1,5 @@
 import os
+import shutil
 import glob
 import gseapy
 
@@ -68,7 +69,12 @@ class GSEAExperiment:
                 gct_file = os.path.join(self.data_dir, '{}.{}'.format(file_name, 'gct'))
                 out_dir = os.path.join(self.output_dir, file_name)
 
+                if os.path.exists(out_dir):
+                    print('Removing files...')
+                    shutil.rmtree(out_dir)
+
                 if not os.path.exists(out_dir):
+                    print('Make directory...')
                     os.mkdir(out_dir)
 
                 self.run_gsea(
